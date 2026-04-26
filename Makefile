@@ -1,0 +1,51 @@
+include .env
+export
+
+export PROJECT_ROOT=$(shell pwd)
+
+env-up:
+	docker compose up -d todoapp-postgres
+env-down:
+	docker compose down todoapp-postgres
+
+env-cleanup:
+	@read -p "Очистить все volume файлы окружения? Опасно!!! [y/N]: " ans; \
+	if [ "$$ans" = "y" ]; then \
+		docker compose down -v todoapp-postgres && \
+		echo "Файлы окружения очищены"; \
+	else \
+		echo "Очистка окружения отменена"; \
+	fi
+
+migrate-create:
+	@if [ -z "$(seq)" ]; then \
+		echo "Отсутствует seq (название миграции). Пример seq=init"; \
+		exit 1; \
+	fi; \
+	docker compose run --rm todoapp-postgres-migrate \
+		create \
+		-ext sql \
+		-dir /migrations \
+		-seq "$(seq)"
+
+migrate-up:
+	@make migrate-action action=up
+
+migrate-down:
+	@make migrate-action action=down
+
+migrate-action:
+	@if [ -z "$(action)" ]; then \
+		echo "Отсутствует параметр action (действие). Пример action=down 1"; \
+		exit 1; \
+	fi; \
+	echo "Ожидание готовности PostgreSQL..."; \
+	until docker compose exec -T todoapp-postgres pg_isready -U ${POSTGRES_USER}; do \
+		echo "БД ещё не готова, ждём..."; \
+		sleep 2; \
+	done; \
+	echo "Запуск миграций..."; \
+	docker compose run --rm todoapp-postgres-migrate \
+		-path /migrations \
+		-database postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@todoapp-postgres:5432/${POSTGRES_DB}?sslmode=disable \
+		"$(action)"
